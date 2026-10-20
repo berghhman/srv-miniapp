@@ -150,7 +150,7 @@ a{color:inherit}
 /* ========== constructor: coverage drawing (лекала) + element list ========== */
 .pk-rail{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:0 calc(-1 * max(16px,env(safe-area-inset-left,0px)));padding:2px max(16px,env(safe-area-inset-left,0px)) 4px}
 .pk-rail::-webkit-scrollbar{display:none}
-.pk{flex:0 0 auto;width:150px;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:3px;transition:border-color .2s,background .2s}
+.pk{flex:0 0 auto;width:168px;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:3px;transition:border-color .2s,background .2s}
 .pk b{font-family:var(--f-display);font-size:17px;font-weight:600;letter-spacing:.01em}
 .pk .pp{font-variant-numeric:tabular-nums;font-weight:600;font-size:14px}
 .pk span{font-size:12px;color:var(--muted);line-height:1.3}
@@ -187,6 +187,30 @@ a{color:inherit}
 .heat .pz[data-r="1"]{fill:rgba(133,146,168,.14)}
 .heat .pz.arc[data-r="2"]{fill:none;stroke:rgba(245,181,70,.85)}
 .heat .pz.on{stroke:#fff;stroke-width:1.8}
+.draw.photo{background:radial-gradient(120% 90% at 50% 40%,#23252b 0%,#1c1d21 60%,#17181c 100%);border-color:#2a2d35}
+.photo .vw svg{border-radius:12px}
+.photo .pz{fill-rule:evenodd;fill:rgba(255,255,255,.001);stroke:rgba(255,255,255,.34);stroke-width:1.1;stroke-dasharray:5 5;cursor:pointer;transition:fill .25s,stroke .25s}
+.photo .pz:hover{stroke:rgba(255,255,255,.75);fill:rgba(255,255,255,.06)}
+.photo .pz.gz{fill:rgba(255,255,255,.001)}
+.photo .pz.on{fill:url(#hatch);stroke:#ff4d55;stroke-width:1.6;stroke-dasharray:none}
+.photo.matte .pz.on{fill:url(#hatchM)}
+.photo.colorfilm .pz.on{fill:var(--fc);fill-opacity:.9;stroke:rgba(255,255,255,.6)}
+.photo.colorfilm .zones{mix-blend-mode:multiply}
+.photo.colorfilm .pz.arc.on{stroke:var(--fc)}
+.photo .pz.arc{fill:none;stroke:rgba(255,255,255,.22);stroke-width:2.5;stroke-dasharray:4 5}
+.photo .pz.arc.wide{stroke-width:7;stroke-linecap:round}
+.photo .pz.arc.on{fill:none;stroke:rgba(255,77,85,.92);stroke-dasharray:none}
+.photo.heat .pz{stroke:rgba(255,255,255,.25)}
+.photo.heat .pz[data-r="3"]{fill:rgba(227,38,47,.55)}
+.photo.heat .pz[data-r="2"]{fill:rgba(245,181,70,.45)}
+.photo.heat .pz[data-r="1"]{fill:rgba(133,146,168,.18)}
+.photo.heat .pz.arc{fill:none}
+.photo.heat .pz.arc[data-r="2"]{stroke:rgba(245,181,70,.9)}
+.photo.heat .pz.on{stroke:#fff;stroke-width:2;stroke-dasharray:none}
+.photo .dim path{stroke:#a9dcff;stroke-width:3}
+.photo .dim text{fill:#a9dcff;font-size:30px;font-weight:600}
+.photo .vw figcaption{color:#6c7486}
+
 .heat-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--muted)}
 .heat-legend span{display:flex;align-items:center;gap:5px}
 .rk{width:8px;height:8px;border-radius:50%;flex:0 0 auto;display:inline-block}
@@ -399,6 +423,10 @@ a{color:inherit}
 .brow img{width:64px;height:64px;border-radius:10px;object-fit:cover;flex:0 0 auto;background:var(--surface2)}
 .brow span{font-size:14px;line-height:1.3;min-width:0}
 .svc .thumb{width:100%;aspect-ratio:16/9;border-radius:10px;object-fit:cover;display:block;background:var(--surface2);margin-bottom:2px}
+.pk .pthumb{display:block;padding:0;border:0;border-radius:9px;margin-bottom:6px;overflow:hidden}
+.pk .pthumb svg{display:block;width:100%;height:auto}
+.pk .pthumb .pz{pointer-events:none;stroke-dasharray:none;stroke:none}
+.pk .pthumb .pz.on{stroke:#ff4d55}
 .pk .pimg{width:100%;aspect-ratio:500/300;object-fit:contain;background:#fff;border-radius:9px;margin-bottom:6px;display:block}
 /* service sheet */
 .sv-hero{position:relative;z-index:0;margin:0 0 14px;border-radius:16px;overflow:hidden;aspect-ratio:1/1;max-height:min(46vh,420px);width:100%;background:#0b0d10}
@@ -977,79 +1005,88 @@ function ppfCalc(){
   return {total, raw, lines, pkg, inPkg, time, save:pkg?raw-total:0, gifts:(pkg==='optima'||pkg==='premium')?'Антидождь передней полусферы — в подарок':''};
 }
 
-/* ---- чертёж: три вида ---- */
-const MX = 'translate(180,0) scale(-1,1)';
+/* ---- схема покрытия на фото автомобиля (рендер AIMLAPI, зоны по панелям кузова) ---- */
+const CAR = {
+  side:{img:'media/car/side.webp', mask:'media/car/side-mask.png', w:1370, h:510},
+  front:{img:'media/car/front.webp', mask:'media/car/front-mask.png', w:1200, h:940},
+  rear:{img:'media/car/rear.webp', mask:'media/car/rear-mask.png', w:1120, h:970}
+};
 function z(id,d,part=1,cls=''){
-  const on = level(id)>=part ? ' on':'';
+  /* part 0 — видно при любом уровне; 2 — только «целиком»; 1 — для деталей с вариантами только «полоса» */
+  const lv=level(id), on = (part===0 ? lv>=1 : part===2 ? lv>=2 : (ITEM[id].opts ? lv===1 : lv>=1)) ? ' on':'';
   return `<path class="pz ${cls}${on}" data-z="${id}" data-r="${ITEM[id].risk||1}" d="${d}"><title>${ITEM[id].name}</title></path>`;
 }
-function zPair(id,d,part=1,cls=''){ return z(id,d,part,cls)+`<g transform="${MX}">${z(id,d,part,cls)}</g>`; }
-function st(d,c='st'){ return `<path class="${c}" d="${d}"/>`; }
-function drawSide(){
-  return `<svg viewBox="0 0 400 140" aria-label="Вид сбоку">
+const mir = (v,d,part,cls,w) => z(v,d,part,cls)+`<g transform="translate(${w},0) scale(-1,1)">${z(v,d,part,cls)}</g>`;
+function carSvg(view, zones, extra=''){
+  const c=CAR[view];
+  return `<svg viewBox="0 0 ${c.w} ${c.h}" aria-label="${view==='side'?'Вид сбоку':view==='front'?'Вид спереди':'Вид сзади'}">
    <defs>
-    <pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="rgba(227,38,47,.22)"/><rect width="1.3" height="5" fill="#ff4d55"/></pattern>
-    <pattern id="hatchM" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="4" fill="rgba(227,38,47,.2)"/><circle cx="2" cy="2" r=".8" fill="#ff6b72"/></pattern>
+    ${view==='side'?`<pattern id="hatch" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="9" height="9" fill="rgba(227,38,47,.30)"/><rect width="2.4" height="9" fill="rgba(255,77,85,.9)"/></pattern>
+    <pattern id="hatchM" width="7" height="7" patternUnits="userSpaceOnUse"><rect width="7" height="7" fill="rgba(227,38,47,.28)"/><circle cx="3.5" cy="3.5" r="1.4" fill="rgba(255,107,114,.95)"/></pattern>`:''}
+    <mask id="m-${view}" maskUnits="userSpaceOnUse" x="0" y="0" width="${c.w}" height="${c.h}"><image href="${c.mask}" x="0" y="0" width="${c.w}" height="${c.h}" preserveAspectRatio="none"/></mask>
    </defs>
-   <line class="gnd" x1="8" y1="131" x2="392" y2="131"/>
-   ${st('M70,63 L126,28 L234,28 L292,54 L282,62 L210,69 L140,69 Z')}
-   ${st('M80,62 L128,34 L136,34 L138,67 Z','gl')}${st('M142,34 L204,33 L204,67 L142,67 Z','gl')}${st('M214,33 L226,33 L276,59 L214,65 Z','gl')}
-   ${z('bumperR','M16,90 C16,86 18,84 22,84 L58,84 L62,96 C64,100 65,104 65,108 L65,116 L24,116 C19,116 16,113 16,108 Z')}
-   ${z('fenderR','M22,84 L22,74 C22,68 26,66 34,66 L72,63 L140,69 L140,112 L119,112 A27,27 0 0 0 65,108 C65,104 64,100 62,96 L58,84 Z')}
-   ${z('doorsR','M140,69 L210,69 L210,112 L140,112 Z')}
-   ${z('doorsF','M210,69 L282,62 L280,112 L210,112 Z')}
-   ${z('fenderF','M282,62 L340,66 L346,84 C344,94 339,102 337,108 A27,27 0 0 0 283,108 L280,112 Z')}
-   ${z('bumperF','M340,66 L360,68 C374,70 382,78 382,88 L382,108 C382,113 379,116 374,116 L337,116 L337,108 C339,102 344,94 346,84 Z')}
-   ${z('hood','M290,54 L327,59 L327,65.1 L282,62 Z',2)}${z('hood','M327,59 L364,64 L340,66 L327,65.1 Z',1)}
-   ${z('roof','M126,26 L208,26 L208,32 L128,32 Z',2)}${z('roof','M208,26 L234,26 L236,32 L208,32 Z',1)}
-   ${z('pillarA','M228,30 L238,30 L292,54 L283,58 Z')}
-   ${z('pillarB','M205,34 L211,34 L211,68 L205,68 Z')}
-   ${z('mirrors','M256,59 L272,53 L279,61 L262,66 Z')}
-   ${z('headlights','M350,71 L374,73 L379,82 L354,80 Z')}
-   ${z('fog','M364,100 L378,100 L378,106 L364,106 Z')}
-   ${z('niches','M192,77 L204,77 L204,81 L192,81 Z')}${z('niches','M262,74 L274,73 L274,77 L262,78 Z')}
-   ${z('sills','M119,112 L283,112 L282,119 L120,119 Z')}
-   ${z('edges','M140,71 L140,110','1','arc')}${z('edges','M210,71 L210,110','1','arc')}
-   ${z('arches','M62,110 A30,30 0 0 1 122,110',1,'arc')}${z('arches','M280,110 A30,30 0 0 1 340,110',1,'arc')}
-   ${[92,310].map(cx=>`<circle class="wh" cx="${cx}" cy="108" r="22"/><circle cx="${cx}" cy="108" r="13" fill="none" stroke="var(--ink-dim)" stroke-width="1"/><circle cx="${cx}" cy="108" r="2.5" fill="var(--ink-dim)"/>`).join('')}
-   ${level('hood')===1?`<g class="dim"><path d="M327,50 L364,55 M327,47 L327,53 M364,52 L364,58"/><text x="333" y="46">40 см</text></g>`:''}
-   ${level('roof')===1?`<g class="dim"><path d="M208,19 L234,19 M208,16 L208,22 M234,16 L234,22"/><text x="208" y="14">20 см</text></g>`:''}
+   <image href="${c.img}" x="0" y="0" width="${c.w}" height="${c.h}" preserveAspectRatio="none"/>
+   <g class="zones" mask="url(#m-${view})">${zones}</g>${extra}
   </svg>`;
+}
+/* миниатюра пакета: та же машина сбоку, подсвечено, что входит */
+function pkgThumb(k){
+  const P=state.ppf, s0=P.sel, m0=P.mode;
+  if(PKG[k]){ P.sel=Object.assign({},PKG[k].set); P.mode='custom'; } else { P.sel={}; P.mode=k; }
+  try{ return drawSide(true); } finally { P.sel=s0; P.mode=m0; }
+}
+function drawSide(thumb){
+  const zones =
+    z('bumperR','M28,288 L105,282 L180,332 L195,360 L178,395 L60,398 L30,370 Z') +
+    z('fenderR','M40,200 L80,168 L162,88 L150,68 L230,57 L224,72 L208,98 L224,128 L240,142 L338,150 L345,250 L340,300 L300,262 L245,262 L195,300 L180,332 L105,282 L28,288 L40,240 Z M46,178 L166,178 L150,202 L60,206 Z') +
+    z('doorsR','M338,150 L625,160 L630,385 L430,385 L425,340 L400,295 L345,262 Z') +
+    z('doorsF','M625,160 L905,172 L925,250 L938,365 L630,385 Z') +
+    z('fenderF','M905,172 L990,178 L1100,196 L1185,222 L1205,262 L1180,300 L1130,272 L1070,262 L1000,272 L950,320 L938,365 L925,250 Z') +
+    z('bumperF','M1185,222 L1320,240 L1340,272 L1345,330 L1335,395 L1190,398 L1185,350 L1170,300 L1205,262 Z') +
+    z('hood','M905,168 L1110,182 L1250,205 L1328,236 L1300,242 L1180,216 L1000,192 L922,182 Z',2) +
+    z('hood','M1120,186 L1250,205 L1328,236 L1300,242 L1180,216 L1115,200 Z',1) +
+    z('roof','M232,52 L700,44 L800,60 L640,62 L235,66 Z',2) +
+    z('roof','M600,46 L700,44 L800,60 L640,62 L600,62 Z',1) +
+    z('pillarA','M770,58 L808,64 L912,166 L892,174 Z') +
+    z('pillarB','M596,62 L628,62 L628,170 L600,168 Z') +
+    z('mirrors','M820,140 L880,138 L894,196 L852,200 L822,176 Z') +
+    z('headlights','M1186,222 L1300,236 L1320,262 L1240,258 L1198,242 Z') +
+    z('fog','M1268,342 L1335,346 L1332,384 L1270,380 Z') +
+    z('niches','M352,194 L412,194 L412,214 L352,214 Z') + z('niches','M638,202 L706,202 L706,222 L638,222 Z') +
+    z('sills','M425,366 L940,362 L940,394 L430,396 Z') +
+    z('edges','M340,160 L346,300','1','arc') + z('edges','M627,162 L630,384','1','arc') + z('edges','M908,175 L938,364','1','arc');
+  const arches = `<g>${z('arches','M172,368 Q178,262 300,258 Q420,262 430,368',1,'arc wide')}${z('arches','M942,368 Q950,262 1070,258 Q1190,262 1196,368',1,'arc wide')}</g>`;
+  const dims = (level('hood')===1?`<g class="dim"><path d="M1120,160 L1328,212 M1120,150 L1120,172 M1328,202 L1328,224"/><text x="1190" y="168">40 см</text></g>`:'') +
+               (level('roof')===1?`<g class="dim"><path d="M600,26 L700,24 M600,16 L600,36 M700,14 L700,34"/><text x="618" y="16">20 см</text></g>`:'');
+  return carSvg('side', zones, thumb ? arches : arches+dims);
 }
 function drawFront(){
-  return `<svg viewBox="0 0 180 128" aria-label="Вид спереди">
-   <line class="gnd" x1="4" y1="125" x2="176" y2="125"/>
-   ${st('M50,14 L130,14 L148,50 L32,50 Z')}
-   ${z('roof','M54,10 L126,10 L130,16 L50,16 Z',1)}
-   ${z('windshield','M52,17 L128,17 L142,48 L38,48 Z',1,'gz')}
-   ${zPair('pillarA','M46,16 L52,16 L38,48 L31,48 Z')}
-   ${zPair('mirrors','M8,40 L30,43 L30,52 L6,50 Z')}
-   ${zPair('fenderF','M14,54 L32,50 L27,68 L12,70 Z')}
-   ${z('hood','M32,50 L148,50 L151,58 L29,58 Z',2)}${z('hood','M29,58 L151,58 L154,68 L26,68 Z',1)}
-   ${zPair('headlights','M14,70 L58,70 L55,80 L12,80 Z')}
-   ${st('M62,70 L118,70 L116,80 L64,80 Z')}
-   ${z('bumperF','M10,82 L170,82 L170,108 Q170,114 162,114 L18,114 Q10,114 10,108 Z')}
-   ${st('M52,99 L128,99 L124,108 L56,108 Z')}
-   ${zPair('fog','M18,94 L36,94 L36,102 L18,102 Z')}
-   <rect class="wh" x="16" y="113" width="20" height="11" rx="3"/><rect class="wh" x="144" y="113" width="20" height="11" rx="3"/>
-   ${level('hood')===1?`<g class="dim"><path d="M160,58 L163,68 M157,58 L163,58 M160,68 L166,68"/><text x="146" y="78">40</text></g>`:''}
-  </svg>`;
+  const W=1200;
+  const zones =
+    z('roof','M300,60 L900,60 L915,98 L285,98 Z',0) +
+    z('windshield','M292,100 L908,100 L1000,290 L200,290 Z',1,'gz') +
+    mir('pillarA','M262,72 L300,98 L208,292 L178,292 Z',1,'',W) +
+    mir('mirrors','M52,240 L150,234 L158,300 L62,292 Z',1,'',W) +
+    z('hood','M178,292 L1022,292 L1046,332 L1070,384 L900,374 L600,364 L300,374 L130,384 L154,332 Z',2) +
+    z('hood','M150,336 L1050,336 L1070,384 L900,374 L600,364 L300,374 L130,384 Z',1) +
+    z('bumperF','M96,452 L124,420 L340,414 L600,378 L860,414 L1076,420 L1104,452 L1112,680 L1050,758 L150,758 L88,680 Z') +
+    mir('headlights','M126,382 L345,412 L330,452 L150,436 L124,420 Z',1,'',W) +
+    mir('fenderF','M88,452 L126,392 L150,440 L104,640 L88,700 Z',1,'',W) +
+    mir('fog','M110,650 L245,660 L250,700 L116,696 Z',1,'',W);
+  const dims = level('hood')===1?`<g class="dim"><path d="M1090,336 L1090,384 M1080,336 L1100,336 M1080,384 L1100,384"/><text x="1104" y="366">40 см</text></g>`:'';
+  return carSvg('front', zones, dims);
 }
 function drawRear(){
-  return `<svg viewBox="0 0 180 128" aria-label="Вид сзади">
-   <line class="gnd" x1="4" y1="125" x2="176" y2="125"/>
-   ${st('M50,14 L130,14 L144,48 L36,48 Z')}
-   ${z('roof','M54,10 L126,10 L130,16 L50,16 Z',2)}
-   ${st('M52,17 L128,17 L140,46 L40,46 Z','gl')}
-   ${zPair('fenderR','M14,52 L36,48 L34,76 L12,78 Z')}
-   ${z('trunk','M38,48 L142,48 L146,76 L34,76 Z')}
-   <path class="tl" d="M14,62 L40,60 L38,72 L13,72 Z"/><path class="tl" d="M14,62 L40,60 L38,72 L13,72 Z" transform="${MX}"/>
-   ${z('bumperR','M10,78 L170,78 L170,108 Q170,114 162,114 L18,114 Q10,114 10,108 Z')}
-   ${z('loading','M34,79 L146,79 L146,88 L34,88 Z')}
-   ${st('M70,93 L110,93 L110,103 L70,103 Z')}
-   <rect class="wh" x="16" y="113" width="20" height="11" rx="3"/><rect class="wh" x="144" y="113" width="20" height="11" rx="3"/>
-  </svg>`;
+  const W=1120;
+  const zones =
+    z('roof','M250,92 L870,92 L890,128 L230,128 Z',2) +
+    z('trunk','M195,290 L925,290 L930,345 L925,400 L915,560 L905,596 L212,596 L202,560 L190,400 L190,345 Z') +
+    mir('fenderR','M56,400 L100,346 L190,346 L190,400 L205,596 L100,652 L66,666 L54,560 Z',1,'',W) +
+    z('bumperR','M60,600 L212,596 L908,596 L1060,600 L1060,700 L980,760 L140,760 L60,700 Z') +
+    z('loading','M206,588 L914,588 L910,628 L210,628 Z');
+  return carSvg('rear', zones);
 }
+
 function renderPPF(){
   const P=state.ppf, c=ppfCalc();
   const isColor = P.mode==='color';
@@ -1077,9 +1114,9 @@ function renderPPF(){
    <div><div class="eyebrow">Защитная полиуретановая плёнка</div><h2 style="font-family:var(--f-display);font-size:26px;font-weight:600;margin:2px 0 0">Схема покрытия</h2>
    <p class="mini" style="font-size:13.5px;margin:4px 0 0">Выберите пакет или отметьте элементы — схема и цена обновятся.</p></div>
 
-   <div class="pk-rail" role="group" aria-label="Пакеты">${pkCards.map(([k,n,p,d,on])=>`<button class="pk" data-pkg="${k}" aria-pressed="${on}">${MEDIA.packages[k]?img(MEDIA.packages[k].f,n,'pimg'):''}<b>${n}</b><span class="pp">от ${rub(p)}</span><span>${d}</span></button>`).join('')}</div>
+   <div class="pk-rail" role="group" aria-label="Пакеты">${pkCards.map(([k,n,p,d,on])=>`<button class="pk" data-pkg="${k}" aria-pressed="${on}"><span class="pthumb draw photo ${k==='color'?'colorfilm':''}" style="--fc:${FILM_COLORS[P.filmColor][0]}">${pkgThumb(k)}</span><b>${n}</b><span class="pp">от ${rub(p)}</span><span>${d}</span></button>`).join('')}</div>
 
-   <div class="draw ${P.heat?'heat':''} ${P.finish==='matte'&&!isColor?'matte':''} ${isColor?'colorfilm':''}" style="--fc:${FILM_COLORS[P.filmColor][0]}">
+   <div class="draw photo ${P.heat?'heat':''} ${P.finish==='matte'&&!isColor?'matte':''} ${isColor?'colorfilm':''}" style="--fc:${FILM_COLORS[P.filmColor][0]}">
      <div class="draw-top">
        <div class="legend">${P.heat?'':`<i></i>Плёнка, ${finLabel}`}</div>
        <button class="heat-btn" data-heat aria-pressed="${P.heat}">Где летят сколы</button>

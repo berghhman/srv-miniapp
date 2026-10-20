@@ -76,15 +76,24 @@ const t = async (name, fn) => { calls = []; reply = () => ({ ok: true, result: {
 
   await t('/start клиенту: приветствие, кнопка приложения и маршрут', async () => {
     await req({ update_id: 2, message: { message_id: 1, chat: { id: 5551, type: 'private' }, from: client, text: '/start' } }, tgHdr);
+    assert.equal(calls[0].method, 'sendPhoto');
+    assert.equal(calls[0].payload.photo, 'https://berghhman.github.io/srv-miniapp/img/cover.png');
     const kb = calls[0].payload.reply_markup.inline_keyboard;
     assert.equal(kb[0][0].web_app.url, 'https://berghhman.github.io/srv-miniapp/');
-    assert.match(kb[1][0].url, /yandex\.ru\/maps/);
-    assert.match(calls[0].payload.text, /Симонова, 11/);
+    assert.equal(kb[1][0].web_app.url, 'https://berghhman.github.io/srv-miniapp/?startapp=works');
+    assert.match(kb[1][1].url, /yandex\.ru\/maps/);
+    assert.match(calls[0].payload.caption, /Симонова, 11/);
+    // фото не отправилось — приветствие уходит текстом
+    calls = []; reply = m => (m === 'sendPhoto' ? { ok: false, description: 'Bad Request: wrong file' } : { ok: true });
+    await req({ update_id: 2, message: { message_id: 1, chat: { id: 5551, type: 'private' }, from: client, text: '/start' } }, tgHdr);
+    assert.deepEqual(calls.map(c => c.method), ['sendPhoto', 'sendMessage']);
+    assert.match(calls[1].payload.text, /Симонова, 11/);
   });
 
   await t('/start с меткой из рекламы открывает нужный раздел', async () => {
     await req({ update_id: 2, message: { message_id: 1, chat: { id: 5551, type: 'private' }, from: client, text: '/start ppf' } }, tgHdr);
     assert.equal(calls[0].payload.reply_markup.inline_keyboard[0][0].web_app.url, 'https://berghhman.github.io/srv-miniapp/?startapp=ppf');
+    assert.equal(calls[0].method, 'sendPhoto');
   });
 
   await t('текст клиента приходит менеджеру с номером клиента', async () => {

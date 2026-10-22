@@ -251,5 +251,43 @@ const t = async (name, fn) => { calls = []; reply = () => ({ ok: true, result: {
     assert.match(calls[0].payload.text, /APP_LINK/);
   });
 
+  const site = { Origin: 'https://berghhman.github.io', 'CF-Connecting-IP': '10.0.0.1' };
+  const webLead = (extra = {}, headers = site) => req({ web: true, text: 'Заявка SRV-1 с сайта SRV\nИмя: Ира\nТелефон: +7 (911) 123-45-67\nУслуги:\n• Полировка — от 2 000 ₽', phone: '+7 (911) 123-45-67', name: 'Ира', hp: '', ms: 9000, ...extra }, headers);
+
+  await t('заявка с сайта уходит менеджеру без #id, с кнопками и эхо-CORS', async () => {
+    const r = await webLead();
+    assert.equal(r.status, 200);
+    assert.equal(r.headers['Access-Control-Allow-Origin'], 'https://berghhman.github.io');
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].payload.chat_id, '777');
+    assert.match(calls[0].payload.text, /^Заявка с сайта/);
+    assert.match(calls[0].payload.text, /Телефон: \+79111234567/);
+    assert.doesNotMatch(calls[0].payload.text, /#id/);
+    assert.deepEqual(calls[0].payload.reply_markup.inline_keyboard[0].map(b => b.callback_data), ['a:0', 'c:0']);
+  });
+
+  await t('сайт: чужой origin, honeypot, слишком быстро, кривой телефон — не доходят до менеджера', async () => {
+    assert.equal((await webLead({}, { Origin: 'https://evil.example' })).status, 403);
+    assert.equal((await webLead({ hp: 'ООО Ромашка' })).status, 200);
+    assert.equal((await webLead({ ms: 900 })).status, 400);
+    assert.equal((await webLead({ phone: '123' })).status, 400);
+    assert.equal(calls.length, 0);
+  });
+
+  await t('сайт: не больше 5 заявок с одного адреса за 10 минут', async () => {
+    const h = { Origin: 'https://berghhman.github.io', 'CF-Connecting-IP': '10.9.9.9' };
+    const st = [];
+    for (let i = 0; i < 6; i++) st.push((await webLead({}, h)).status);
+    assert.deepEqual(st, [200, 200, 200, 200, 200, 429]);
+  });
+
+  await t('«Принять» на заявке с сайта не пишет клиенту и не добавляет #id', async () => {
+    await route({ method: 'POST', headers: tgHdr, query: {}, body: JSON.stringify({ update_id: 40, callback_query: { id: 'q1', from: { first_name: 'Роман' }, data: 'a:0', message: { message_id: 5, chat: { id: 777 }, text: 'Заявка с сайта, 12:00\nТелефон: +79111234567', reply_markup: { inline_keyboard: [[{ text: 'Принять', callback_data: 'a:0' }]] } } } }) }, env, deps);
+    assert.deepEqual(calls.map(c => c.method), ['editMessageText', 'answerCallbackQuery']);
+    assert.doesNotMatch(calls[0].payload.text, /#id/);
+    assert.match(calls[0].payload.text, /Статус: Принята: Роман/);
+    assert.match(calls[1].payload.text, /перезвоните/);
+  });
+
   console.log('\nвсе проверки пройдены');
 })().catch(e => { console.error(e); process.exit(1); });

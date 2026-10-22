@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://berghhman.github.io/srv-miniapp/site/sitemap.xml

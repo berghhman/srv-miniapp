@@ -9,7 +9,8 @@
      WEBHOOK_SECRET   любая длинная строка: защищает вход от чужих запросов
      PUBLIC_URL       адрес этой функции (нужен для одноразовой настройки)
      MINIAPP_URL      адрес мини-аппа, по умолчанию https://berghhman.github.io/srv-miniapp/
-     ALLOW_ORIGIN     с какого сайта принимать заявки, по умолчанию https://berghhman.github.io
+     ALLOW_ORIGIN     с каких сайтов принимать заявки (через запятую), по умолчанию
+                      https://berghhman.github.io, https://srv-auto.ru, https://www.srv-auto.ru
      CHANNEL_ID       канал для публикаций (@srvdetailing или -100…)
      APP_LINK         ссылка на мини-апп для кнопок в канале: https://t.me/<бот>/app (после /newapp) */
 const DEFAULT_MINIAPP = 'https://berghhman.github.io/srv-miniapp/';
@@ -143,6 +144,32 @@ async function handleLead(body, env, deps = {}) {
   return { status: 200, body: 'ok' };
 }
 
+/* ---------- заявка с сайта (без Telegram): проверки от спама, менеджеру без #id ---------- */
+const WEB_HITS = new Map(); // ip -> [время заявок], живёт в памяти одного экземпляра воркера
+function webRateOk(ip, now = Date.now()) {
+  if (!ip) return true;
+  const list = (WEB_HITS.get(ip) || []).filter(t => now - t < 10 * 60e3);
+  if (list.length >= 5) { WEB_HITS.set(ip, list); return false; }
+  list.push(now); WEB_HITS.set(ip, list);
+  if (WEB_HITS.size > 5000) WEB_HITS.clear();
+  return true;
+}
+async function handleWebLead(body, env, deps = {}, meta = {}) {
+  if (body.hp) return { status: 200, body: 'ok' };              // honeypot: боту отвечаем «ок», заявку не шлём
+  if (!(Number(body.ms) >= 3000)) return { status: 400, body: 'too fast' };
+  const digits = String(body.phone || '').replace(/\D/g, '');
+  if (digits.length !== 11 || !/^[78]9/.test(digits)) return { status: 400, body: 'bad phone' };
+  if (!webRateOk(meta.ip)) return { status: 429, body: 'too many' };
+  if (!env.MANAGER_CHAT_ID) return { status: 502, body: 'manager not set' };
+  const call = api(env, deps.fetch);
+  const text = clip(body.text, 3000).replace(ID_TAG, '');
+  const phone = '+7' + digits.slice(1);
+  const kb = { inline_keyboard: [[{ text: 'Принять', callback_data: 'a:0' }, { text: 'Закрыть', callback_data: 'c:0' }]] };
+  const sent = await call('sendMessage', { chat_id: env.MANAGER_CHAT_ID, text: `Заявка с сайта, ${hhmm()}\nТелефон: ${phone}${meta.origin ? `\nИсточник: ${meta.origin.replace(/^https?:\/\//, '')}` : ''}\n\n${text}`, reply_markup: kb });
+  if (!sent.ok) return { status: 502, body: 'telegram error' };
+  return { status: 200, body: 'ok' };
+}
+
 /* ---------- всё, что Telegram присылает боту ---------- */
 async function handleUpdate(u, env, deps = {}) {
   const call = api(env, deps.fetch);
@@ -157,9 +184,10 @@ async function handleUpdate(u, env, deps = {}) {
     const base = (msg.text || '').replace(ID_TAG, '').replace(/\n\nСтатус: .*$/s, '').trimEnd();
     const rest = (msg.reply_markup && msg.reply_markup.inline_keyboard || []).filter(row => row.some(b => b.url));
     const keep = act === 'a' ? [[{ text: 'Закрыть', callback_data: `c:${cid}` }], ...rest] : rest;
-    await call('editMessageText', { chat_id: msg.chat.id, message_id: msg.message_id, text: `${base}\n\nСтатус: ${status}\n\n${tagOf(cid)}`, reply_markup: { inline_keyboard: keep } });
-    if (act === 'a') await call('sendMessage', { chat_id: cid, text: TEXT.accepted });
-    return call('answerCallbackQuery', { callback_query_id: q.id, text: act === 'a' ? 'Клиент получил уведомление' : 'Заявка закрыта' });
+    const web = cid === '0'; // заявка с сайта: клиента в Telegram нет, перезвонить по телефону из заявки
+    await call('editMessageText', { chat_id: msg.chat.id, message_id: msg.message_id, text: `${base}\n\nСтатус: ${status}${web ? '' : `\n\n${tagOf(cid)}`}`, reply_markup: { inline_keyboard: keep } });
+    if (act === 'a' && !web) await call('sendMessage', { chat_id: cid, text: TEXT.accepted });
+    return call('answerCallbackQuery', { callback_query_id: q.id, text: act === 'a' ? (web ? 'Принято — перезвоните клиенту' : 'Клиент получил уведомление') : 'Заявка закрыта' });
   }
 
   const m = u.message || u.edited_message;
@@ -239,8 +267,11 @@ async function setup(env, deps = {}) {
 
 /* ---------- общий вход для любого хостинга ---------- */
 async function route(req, env, deps = {}) {
-  const cors = { 'Access-Control-Allow-Origin': env.ALLOW_ORIGIN || 'https://berghhman.github.io', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' };
   const h = Object.fromEntries(Object.entries(req.headers || {}).map(([k, v]) => [k.toLowerCase(), v]));
+  const allowed = String(env.ALLOW_ORIGIN || 'https://berghhman.github.io,https://srv-auto.ru,https://www.srv-auto.ru').split(',').map(x => x.trim()).filter(Boolean);
+  const origin = h.origin || '';
+  const okOrigin = allowed.includes(origin);
+  const cors = { 'Access-Control-Allow-Origin': okOrigin ? origin : allowed[0], 'Vary': 'Origin', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' };
   if (req.method === 'OPTIONS') return { status: 204, headers: cors, body: '' };
   if (req.method === 'GET' && req.query && req.query.setup) {
     if (!env.WEBHOOK_SECRET || req.query.setup !== env.WEBHOOK_SECRET) return { status: 403, body: 'wrong key' };
@@ -255,8 +286,13 @@ async function route(req, env, deps = {}) {
     try { await handleUpdate(body, env, deps); } catch (e) { console.error(e); }
     return { status: 200, body: 'ok' }; // Telegram не должен повторять апдейт
   }
+  if (body.web) {
+    if (!okOrigin) return { status: 403, headers: cors, body: 'origin' };
+    const r = await handleWebLead(body, env, deps, { ip: h['cf-connecting-ip'] || '', origin });
+    return { status: r.status, headers: cors, body: r.body };
+  }
   const r = await handleLead(body, env, deps);
   return { status: r.status, headers: cors, body: r.body };
 }
 
-module.exports = { route, handleLead, handleUpdate, setup, checkInitData, TEXT };
+module.exports = { route, handleLead, handleWebLead, handleUpdate, setup, checkInitData, TEXT };
